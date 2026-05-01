@@ -16,7 +16,7 @@ var cursor_style = lipgloss.NewStyle().
 
 var selected_style = lipgloss.NewStyle().
 	Bold(true).
-	Foreground(lipgloss.White).
+	Foreground(lipgloss.BrightBlack).
 	Background(lipgloss.Cyan)
 
 var theme_map = map[string]theme{
@@ -33,6 +33,22 @@ var theme_map = map[string]theme{
 		string_color:            theme_color{r: 66, g: 123, b: 87},
 		local_variable_color:    theme_color{r: 121, g: 116, b: 14},
 		method_color:            theme_color{r: 175, g: 58, b: 2},
+		number_color:            theme_color{r: 60, g: 56, b: 54},
+	},
+	"monokai": {
+		foreground:              theme_color{r: 248, g: 248, b: 242},
+		background:              theme_color{r: 39, g: 40, b: 34},
+		selection_foreground:    theme_color{r: 166, g: 169, b: 170},
+		selection_background:    theme_color{r: 73, g: 72, b: 62},
+		current_line_background: theme_color{r: 62, g: 61, b: 50},
+		line_number_color:       theme_color{r: 117, g: 113, b: 94},
+		comment_color:           theme_color{r: 117, g: 113, b: 94},
+		field_color:             theme_color{r: 102, g: 217, b: 239},
+		keyword_color:           theme_color{r: 249, g: 38, b: 114},
+		string_color:            theme_color{r: 230, g: 219, b: 116},
+		local_variable_color:    theme_color{r: 252, g: 152, b: 103},
+		method_color:            theme_color{r: 169, g: 220, b: 118},
+		number_color:            theme_color{r: 174, g: 129, b: 255},
 	},
 }
 
@@ -73,6 +89,12 @@ var eclipse_jdt_ui_to_modify = map[string]bool{
 	"semanticHighlighting.methodDeclarationName.color":  true,
 	"semanticHighlighting.staticMethodInvocation.color": true,
 	"sourceHoverBackgroundColor":                        true,
+	"java_default":                                      true,
+	"java_bracket":                                      true,
+	"java_operator":                                     true,
+	"semanticHighlighting.deprecatedMember.color":       true,
+	"semanticHighlighting.number.enabled":               true,
+	"semanticHighlighting.number.color":                 true,
 }
 
 func main() {
@@ -85,6 +107,7 @@ func main() {
 
 func initialModel() model {
 	keys := make([]string, 0, len(theme_map))
+	keys = append(keys, "default")
 	for k := range theme_map {
 		keys = append(keys, k)
 	}
@@ -112,6 +135,7 @@ type theme struct {
 	field_color             theme_color
 	local_variable_color    theme_color
 	method_color            theme_color
+	number_color            theme_color
 }
 
 type theme_color struct {
@@ -152,7 +176,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// The "enter" key selects the theme
 		case "enter":
-			setTheme(theme_map[m.choices[m.cursor]])
+			if m.choices[m.cursor] == "default" {
+				clearTheme()
+			} else {
+				setTheme(theme_map[m.choices[m.cursor]])
+			}
 			return m, tea.Quit
 		}
 	}
@@ -160,6 +188,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Return the updated model to the Bubble Tea runtime for processing.
 	// Note that we're not returning a command.
 	return m, nil
+}
+
+func clearTheme() {
+	wd, err := os.Getwd()
+	check(err)
+
+	// first settings file; o.e.ui
+	path1 := filepath.Join(wd, ".metadata", ".plugins", "org.eclipse.core.runtime", ".settings", "org.eclipse.ui.editors.prefs")
+	dat, err := os.ReadFile(path1)
+	check(err)
+	entries := strings.Split(string(dat), "\n")
+	new_entries := []string{}
+	for i := range entries {
+		parsed_line := strings.Split(entries[i], "=")
+		if !eclipse_ui_to_modify[parsed_line[0]] {
+			new_entries = append(new_entries, entries[i])
+		}
+	}
+	err = os.WriteFile(path1, []byte(strings.Join(new_entries, "\n")), 0644)
+	check(err)
+
+	// second settings file; o.e.j.ui
+	path2 := filepath.Join(wd, ".metadata", ".plugins", "org.eclipse.core.runtime", ".settings", "org.eclipse.jdt.ui.prefs")
+	dat, err = os.ReadFile(path2)
+	check(err)
+	entries = strings.Split(string(dat), "\n")
+	new_entries = []string{}
+	for i := range entries {
+		parsed_line := strings.Split(entries[i], "=")
+		if !eclipse_jdt_ui_to_modify[parsed_line[0]] {
+			new_entries = append(new_entries, entries[i])
+		}
+	}
+	err = os.WriteFile(path2, []byte(strings.Join(new_entries, "\n")), 0644)
+	check(err)
 }
 
 func setTheme(t theme) {
@@ -204,6 +267,9 @@ func setTheme(t theme) {
 			new_entries = append(new_entries, entries[i])
 		}
 	}
+	new_entries = append(new_entries, fmt.Sprintf("java_bracket=%s", t.foreground))
+	new_entries = append(new_entries, fmt.Sprintf("java_operator=%s", t.foreground))
+	new_entries = append(new_entries, fmt.Sprintf("java_default=%s", t.foreground))
 	new_entries = append(new_entries, fmt.Sprintf("java_comment_task_tag=%s", t.field_color))
 	new_entries = append(new_entries, fmt.Sprintf("java_doc_default=%s", t.comment_color))
 	new_entries = append(new_entries, fmt.Sprintf("java_doc_keyword=%s", t.field_color))
@@ -221,9 +287,12 @@ func setTheme(t theme) {
 	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.staticField.color=%s", t.field_color))
 	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.staticFinalField.color=%s", t.field_color))
 	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.method.color=%s", t.method_color))
+	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.deprecatedMember.color=%s", t.foreground))
 	new_entries = append(new_entries, "semanticHighlighting.method.enabled=true")
 	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.methodDeclarationName.color=%s", t.method_color))
 	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.staticMethodInvocation.color=%s", t.method_color))
+	new_entries = append(new_entries, fmt.Sprintf("semanticHighlighting.number.color=%s", t.number_color))
+	new_entries = append(new_entries, "semanticHighlighting.number.enabled=true")
 	new_entries = append(new_entries, fmt.Sprintf("sourceHoverBackgroundColor=%s", t.background))
 	err = os.WriteFile(path2, []byte(strings.Join(new_entries, "\n")), 0644)
 	check(err)
